@@ -29,7 +29,7 @@ import zio.zmx.metrics._
 package object zmx extends MetricsDataModel with MetricsConfigDataModel {
 
   type MetricsAggregator = Has[MetricsAggregator.Service]
-  type MetricsSender[B] = Has[MetricsSender.Service[B]]
+  type MetricsSender[B]  = Has[MetricsSender.Service[B]]
 
   val ZMXSupervisor: Supervisor[Set[Fiber.Runtime[Any, Any]]] =
     new Supervisor[Set[Fiber.Runtime[Any, Any]]] {
@@ -189,8 +189,11 @@ package object zmx extends MetricsDataModel with MetricsConfigDataModel {
       private[zio] def unsafeService: UnsafeService = self
     }
 
-    private[zio] class RingUnsafeService(config: MetricsConfig, clock: Clock.Service, aggregator: Ref[Chunk[Metric[_]]])
-        extends UnsafeService {
+    private[zio] class RingUnsafeService(
+      config: MetricsConfig,
+      clock: Clock.Service,
+      aggregator: Ref[Chunk[Metric[_]]]
+    ) extends UnsafeService {
 
       override def counter(name: String, value: Double): Boolean =
         send(Metric.Counter(name, value, 1.0, Chunk.empty))
@@ -319,7 +322,7 @@ package object zmx extends MetricsDataModel with MetricsConfigDataModel {
           case m @ _       => aggregator.updateAndGet(_ :+ m) *> drain
         }
 
-      private val untilNCollected                                                                   =
+      private val untilNCollected =
         Schedule.fixed(config.pollRate) *>
           Schedule.recurUntil[Chunk[Metric[_]]](_.size == config.bufferSize)
 

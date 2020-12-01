@@ -28,6 +28,9 @@ import zio.zmx.metrics._
 
 package object zmx extends MetricsDataModel with MetricsConfigDataModel {
 
+  type MetricsAggregator = Has[MetricsAggregator.Service]
+  type MetricsSender[B] = Has[MetricsSender.Service[B]]
+
   val ZMXSupervisor: Supervisor[Set[Fiber.Runtime[Any, Any]]] =
     new Supervisor[Set[Fiber.Runtime[Any, Any]]] {
 
@@ -319,6 +322,7 @@ package object zmx extends MetricsDataModel with MetricsConfigDataModel {
       private val untilNCollected                                                                   =
         Schedule.fixed(config.pollRate) *>
           Schedule.recurUntil[Chunk[Metric[_]]](_.size == config.bufferSize)
+
       private[zio] val collect: (Chunk[Metric[_]] => Task[Chunk[Long]]) => Task[Chunk[Chunk[Long]]] =
         f => {
           for {

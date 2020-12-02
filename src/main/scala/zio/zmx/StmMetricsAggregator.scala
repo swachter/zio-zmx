@@ -9,13 +9,17 @@ import zio.{ Has, UIO, URIO, URLayer, ZIO, ZLayer }
 
 object StmMetricsAggregator {
 
-  def stmMetricsAggregator[B: Tag](
+  def layer[B: Tag](
     size: Int,
     maxDelay: Duration,
     overflowStrategy: OverflowStrategy,
     aggregate: (Option[B], Metric[_]) => StmMetricsAggregator.BucketAggregationResult[B]
   ): URLayer[Clock with MetricsSender[B], MetricsAggregator] =
-    ZLayer.fromEffect(StmMetricsAggregator(size, maxDelay, overflowStrategy, aggregate))
+    ZLayer.fromAcquireRelease(StmMetricsAggregator(size, maxDelay, overflowStrategy, aggregate))(
+      // we know for sure that the acquired MetricsAggregator.Service is a ServiceImpl
+      // -> release its resources
+      _.asInstanceOf[ServiceImpl].release
+    )
 
   sealed trait OverflowStrategy
 
@@ -55,6 +59,11 @@ object StmMetricsAggregator {
     object Dropped                         extends DoAddResult
   }
 
+  /** Define an implementation trait that allows to release resources after usage. */
+  trait ServiceImpl extends MetricsAggregator.Service {
+    def release: UIO[Any]
+  }
+
   def apply[B: Tag](
     size: Int,
     maxDelay: Duration,
@@ -82,9 +91,9 @@ object StmMetricsAggregator {
                            _    <- readIdx.set((rIdx + 1) % size)
                          } yield b.get).commit
     // fork a daemon that forwards completed buckets to the sender
-    _                 <- (getCompletedBucket >>= sender.send).forever.forkDaemon
+    sendFiber         <- (getCompletedBucket >>= sender.send).forever.forkDaemon
 
-  } yield new MetricsAggregator.Service {
+  } yield new ServiceImpl {
 
     override def add(m: Metric[_]): UIO[AddResult] = for {
       addResult <- doAdd(m).commit
@@ -155,6 +164,8 @@ object StmMetricsAggregator {
                        } yield addResult
                    }
     } yield addResult
+
+    override val release = sendFiber.interrupt
 
   }
 

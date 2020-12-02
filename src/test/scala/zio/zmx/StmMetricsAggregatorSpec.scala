@@ -46,8 +46,7 @@ object StmMetricsAggregatorSpec extends DefaultRunnableSpec {
           bs      <- buckets.get
           _       <- ZIO.effect(println("got buckets"))
         } yield {
-          println(s"assert size: ${bs.size}")
-          assert { println("get size"); bs.size }(equalTo(1))
+          assert { println("assert size"); bs.size }(equalTo(1))
         }
       }
     }

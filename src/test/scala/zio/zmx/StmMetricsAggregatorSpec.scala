@@ -31,16 +31,24 @@ object StmMetricsAggregatorSpec extends DefaultRunnableSpec {
           prog     = for {
                        aggregator <- ZIO.access[MetricsAggregator](_.get)
                        _          <- aggregator.add(Metric.Counter("counter", 1.0, 1.0, Chunk.empty))
+                       _          <- ZIO.sleep(1500.milliseconds)
                      } yield ()
           sender   = new MetricsSender.Service[MetricList] {
-                       override def send(b: MetricList): UIO[Unit] = buckets.update(b :: _)
+                       override def send(b: MetricList): UIO[Unit] = ZIO.effectTotal(println("update")) *> buckets.update(b :: _)
                      }
           _       <- prog
                        .provideSomeLayer(aggregatorLayer)
-                       .provideSome[TestClock with Clock](_.add(sender)).fork
+                       .provideSome[TestClock with Clock](_.add(sender))
+                       .fork
+          _       <- ZIO.effect(println("adjust clock"))
           _       <- TestClock.adjust(2.seconds)
+          _       <- ZIO.effect(println("adjusted clock"))
           bs      <- buckets.get
-        } yield assert(bs.size)(equalTo(1))
+          _       <- ZIO.effect(println("got buckets"))
+        } yield {
+          println(s"assert size: ${bs.size}")
+          assert { println("get size"); bs.size }(equalTo(1))
+        }
       }
     }
 

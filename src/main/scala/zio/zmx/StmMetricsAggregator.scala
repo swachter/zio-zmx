@@ -5,7 +5,7 @@ import zio.clock.Clock
 import zio.duration.Duration
 import zio.stm.{ TArray, TRef, USTM, ZSTM }
 import zio.zmx.MetricsAggregator.AddResult
-import zio.{ Has, UIO, URIO, URLayer, ZIO, ZLayer }
+import zio.{ Exit, Has, UIO, URIO, URLayer, ZIO, ZLayer, ZScope }
 
 object StmMetricsAggregator {
 
@@ -80,6 +80,10 @@ object StmMetricsAggregator {
     // -> whenever writeIdx is incremented the counter is incremented, too.
     counter           <- TRef.makeCommit(0)
     buckets           <- TArray.fromIterable((0 until size).map(_ => Option.empty[B])).commit
+    // a scope for forking
+    // - the fiber that forwards completed buckets to the sender
+    // - fibers that ensure that buckets are forwarded if their maxDelay has expired
+    open              <- ZScope.make[Exit[Any, Any]]
     // in a transaction do:
     // - wait for a completed bucket (i.e. the write index has moved on)
     // - get that bucket and
@@ -90,8 +94,8 @@ object StmMetricsAggregator {
                            b    <- buckets(rIdx)
                            _    <- readIdx.set((rIdx + 1) % size)
                          } yield b.get).commit
-    // fork a daemon that forwards completed buckets to the sender
-    sendFiber         <- (getCompletedBucket >>= sender.send).forever.forkDaemon
+    // fork a fiber that forwards completed buckets to the sender
+    _                 <- (getCompletedBucket >>= sender.send).forever.forkIn(open.scope)
 
   } yield new ServiceImpl {
 
@@ -116,7 +120,7 @@ object StmMetricsAggregator {
                                                 ZSTM.succeed(())
                                               }
                               } yield ()).commit
-                       } yield ()).forkDaemon *> ZIO.succeed(AddResult.Added)
+                       } yield ()).forkIn(open.scope) *> ZIO.succeed(AddResult.Added)
                      case DoAddResult.AddedToCurrentBucket        => ZIO.succeed(AddResult.Added)
                      case DoAddResult.Ignored                     => ZIO.succeed(AddResult.Ignored)
                      case DoAddResult.Dropped                     => ZIO.succeed(AddResult.Dropped)
@@ -124,7 +128,8 @@ object StmMetricsAggregator {
     } yield res
 
     /**
-     * A transaction that determines what to do with the given metric and updates the buckets and writeIdx accordingly.
+     * A transaction that first determines what to do with a given metric and then updates the buckets
+     * and writeIdx accordingly.
      */
     private def doAdd(metric: Metric[_]): USTM[DoAddResult] = for {
       wrtIdx    <- writeIdx.get
@@ -165,7 +170,7 @@ object StmMetricsAggregator {
                    }
     } yield addResult
 
-    override val release = sendFiber.interrupt
+    override val release = ZIO.effectTotal(println("release")) *> open.close(Exit.Success(()))
 
   }
 

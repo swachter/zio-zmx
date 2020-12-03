@@ -3,9 +3,9 @@ package zio.zmx
 import izumi.reflect.Tag
 import zio.clock.Clock
 import zio.duration.Duration
-import zio.stm.{ TArray, TRef, USTM, ZSTM }
+import zio.stm.{TArray, TRef, USTM, ZSTM}
 import zio.zmx.MetricsAggregator.AddResult
-import zio.{ Exit, Has, UIO, URIO, URLayer, ZIO, ZLayer, ZScope }
+import zio.{Exit, Has, UIO, URIO, URLayer, ZIO, ZLayer, ZManaged, ZScope}
 
 object StmMetricsAggregator {
 
@@ -15,11 +15,18 @@ object StmMetricsAggregator {
     overflowStrategy: OverflowStrategy,
     aggregate: (Option[B], Metric[_]) => StmMetricsAggregator.BucketAggregationResult[B]
   ): URLayer[Clock with MetricsSender[B], MetricsAggregator] =
-    ZLayer.fromAcquireRelease(StmMetricsAggregator(size, maxDelay, overflowStrategy, aggregate))(
-      // we know for sure that the acquired MetricsAggregator.Service is a ServiceImpl
-      // -> release its resources
-      _.asInstanceOf[ServiceImpl].release
+    ZLayer.fromManaged(
+      ZManaged.makeInterruptible(
+        StmMetricsAggregator(size, maxDelay, overflowStrategy, aggregate)
+      )(
+        _.asInstanceOf[ServiceImpl].release
+      )
     )
+//    ZLayer.fromAcquireRelease(StmMetricsAggregator(size, maxDelay, overflowStrategy, aggregate))(
+//      // we know for sure that the acquired MetricsAggregator.Service is a ServiceImpl
+//      // -> release its resources
+//      _.asInstanceOf[ServiceImpl].release
+//    )
 
   sealed trait OverflowStrategy
 
@@ -170,7 +177,7 @@ object StmMetricsAggregator {
                    }
     } yield addResult
 
-    override val release = ZIO.effectTotal(println("release")) *> open.close(Exit.Success(()))
+    override val release = ZIO.effectTotal(println("release")) *> open.close(Exit.Success(())) <* ZIO.effectTotal(println("released"))
 
   }
 

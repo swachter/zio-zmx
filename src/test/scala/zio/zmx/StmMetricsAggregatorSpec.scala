@@ -6,6 +6,8 @@ import zio.test.DefaultRunnableSpec
 import zio.test._
 import zio.test.Assertion._
 import zio.duration._
+import zio.stm.{ TArray, TRef }
+import zio.test.TestSuccess.Ignored
 import zio.test.environment.TestClock
 import zio.zmx.StmMetricsAggregator.BucketAggregationResult
 
@@ -34,20 +36,15 @@ object StmMetricsAggregatorSpec extends DefaultRunnableSpec {
                        _          <- ZIO.sleep(1500.milliseconds)
                      } yield ()
           sender   = new MetricsSender.Service[MetricList] {
-                       override def send(b: MetricList): UIO[Unit] = ZIO.effectTotal(println("update")) *> buckets.update(b :: _)
+                       override def send(b: MetricList): UIO[Unit] = buckets.update(b :: _)
                      }
           _       <- prog
                        .provideSomeLayer(aggregatorLayer)
                        .provideSome[TestClock with Clock](_.add(sender))
                        .fork
-          _       <- ZIO.effect(println("adjust clock"))
           _       <- TestClock.adjust(2.seconds)
-          _       <- ZIO.effect(println("adjusted clock"))
           bs      <- buckets.get
-          _       <- ZIO.effect(println("got buckets"))
-        } yield {
-          assert { println("assert size"); bs.size }(equalTo(1))
-        }
+        } yield assert(bs.size)(equalTo(1))
       }
     }
 

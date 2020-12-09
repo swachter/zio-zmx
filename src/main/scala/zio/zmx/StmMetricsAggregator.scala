@@ -3,9 +3,9 @@ package zio.zmx
 import izumi.reflect.Tag
 import zio.clock.Clock
 import zio.duration.Duration
-import zio.stm.{TArray, TRef, USTM, ZSTM}
+import zio.stm.{ TArray, TRef, USTM, ZSTM }
 import zio.zmx.MetricsAggregator.AddResult
-import zio.{Exit, Has, UIO, URIO, URLayer, ZIO, ZLayer, ZManaged, ZScope}
+import zio.{ Exit, Has, UIO, URIO, URLayer, ZIO, ZLayer, ZManaged, ZScope }
 
 object StmMetricsAggregator {
 
@@ -177,7 +177,7 @@ object StmMetricsAggregator {
                    }
     } yield addResult
 
-    override val release = ZIO.effectTotal(println("release")) *> open.close(Exit.Success(())) <* ZIO.effectTotal(println("released"))
+    override val release =  open.close(Exit.Success(()))
 
   }
 
